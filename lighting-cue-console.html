@@ -1,0 +1,797 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>剧场灯位与 Cue 表</title>
+<style>
+  :root{
+    --bg:#131418; --panel:#1c1e24; --panel2:#23262e; --line:#2e313b;
+    --txt:#e9e7df; --dim:#9a9da8; --accent:#f0a832; --accent2:#ffb84d;
+    --danger:#e05c5c; --ok:#5cc98a; --mono:"SFMono-Regular",Consolas,"Liberation Mono",monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{background:var(--bg);color:var(--txt);font:14px/1.5 "PingFang SC","Microsoft YaHei",system-ui,sans-serif;overflow:hidden}
+  button{font:inherit;color:inherit;background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:4px 10px;cursor:pointer}
+  button:hover{border-color:var(--accent);color:var(--accent2)}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#1a1405;font-weight:600}
+  button.primary:hover{background:var(--accent2)}
+  button.danger:hover{border-color:var(--danger);color:var(--danger)}
+  button.ghost{background:transparent;border-color:transparent;color:var(--dim)}
+  button.ghost:hover{color:var(--accent2)}
+  input,select,textarea{font:inherit;color:var(--txt);background:#14161b;border:1px solid var(--line);border-radius:6px;padding:4px 8px}
+  input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent)}
+  h2{font-size:13px;letter-spacing:.12em;color:var(--dim);text-transform:uppercase;margin:0 0 8px}
+
+  header{height:52px;display:flex;align-items:center;gap:12px;padding:0 16px;border-bottom:1px solid var(--line);background:var(--panel)}
+  header .logo{font-size:18px}
+  header input.showName{background:transparent;border-color:transparent;font-size:16px;font-weight:600;width:240px}
+  header input.showName:hover{border-color:var(--line)}
+  header .sp{flex:1}
+  header .hint{color:var(--dim);font-size:12px}
+
+  main{display:grid;grid-template-columns:300px 1fr 430px;gap:10px;padding:10px;height:calc(100vh - 52px)}
+  section{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px;overflow:auto;min-height:0}
+  .colWrap{display:flex;flex-direction:column;gap:10px;min-height:0;overflow:hidden}
+  .colWrap>section{flex:1}
+
+  /* ---------- Cue 列表 ---------- */
+  .cueItem{border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin-bottom:8px;background:var(--panel2);cursor:pointer;display:flex;gap:8px;align-items:center}
+  .cueItem.sel{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset}
+  .cueItem .ord{font-family:var(--mono);color:var(--dim);font-size:12px;width:20px;text-align:center}
+  .cueItem.sel .ord{color:var(--accent)}
+  .cueItem .meta{flex:1;min-width:0}
+  .cueItem .nm{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .cueItem .sub{font-size:12px;color:var(--dim)}
+  .cueItem .ops{display:flex;flex-direction:column;gap:2px}
+  .cueItem .ops button{padding:0 5px;font-size:11px;line-height:1.4}
+  .cueEdit{margin-top:10px;border-top:1px dashed var(--line);padding-top:10px;display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .cueEdit label{font-size:12px;color:var(--dim);display:flex;flex-direction:column;gap:3px}
+  .cueEdit .full{grid-column:1/-1}
+
+  /* ---------- 灯位图 ---------- */
+  #plot{width:100%;background:#0d0e12;border:1px solid var(--line);border-radius:8px;touch-action:none}
+  .fxDot{cursor:pointer}
+  .fxDot text{fill:#cfd2da;font-size:3.2px;font-family:var(--mono);text-anchor:middle;pointer-events:none}
+  .fxDot.dim{opacity:.14}
+  .fxDot .halo{fill:none;stroke:var(--accent);stroke-width:.5;opacity:0}
+  .fxDot.inCue .halo{opacity:1}
+  .plotHint{font-size:12px;color:var(--dim);margin-top:6px}
+
+  /* ---------- 场景预览 ---------- */
+  #preview{position:relative;width:100%;aspect-ratio:16/9;background:linear-gradient(#05060a 62%,#191410 62%);border:1px solid var(--line);border-radius:8px;overflow:hidden}
+  #preview .pool{position:absolute;border-radius:50%;mix-blend-mode:screen;pointer-events:none;transform:translate(-50%,-50%)}
+  #preview .src{position:absolute;width:6px;height:6px;border-radius:50%;transform:translate(-50%,-50%);pointer-events:none}
+  #preview .cap{position:absolute;left:10px;bottom:8px;font-size:12px;color:var(--dim);background:rgba(0,0,0,.45);padding:2px 8px;border-radius:6px}
+
+  /* ---------- 灯具表 ---------- */
+  .filters{display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap}
+  .filters input[type=text]{flex:1;min-width:90px}
+  .filters select,.filters input.gelF{width:96px}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th{position:sticky;top:0;background:var(--panel);color:var(--dim);font-weight:500;text-align:left;padding:4px 6px;border-bottom:1px solid var(--line);z-index:1}
+  td{padding:4px 6px;border-bottom:1px solid #23252c;vertical-align:middle}
+  tr:hover td{background:#20232b}
+  .fxLabel{font-weight:600}
+  .fxType{font-size:11px;color:var(--dim)}
+  .cellV{cursor:pointer;padding:2px 6px;border-radius:5px;border:1px dashed transparent;display:inline-flex;align-items:center;gap:5px;min-width:44px}
+  .cellV:hover{border-color:var(--accent)}
+  .cellV .ovrDot{width:6px;height:6px;border-radius:50%;background:var(--accent);flex:none}
+  .cellV input{width:72px;padding:2px 5px}
+  .swatch{width:12px;height:12px;border-radius:3px;border:1px solid #0006;display:inline-block;flex:none}
+  .mono{font-family:var(--mono)}
+  .intCell{display:flex;align-items:center;gap:6px}
+  .intCell input[type=range]{width:90px;accent-color:var(--accent)}
+  .intCell input[type=number]{width:56px}
+  .emptyTip{color:var(--dim);font-size:13px;padding:14px 4px}
+
+  /* ---------- 版本备注 ---------- */
+  .verItem{border-left:3px solid var(--accent);background:var(--panel2);border-radius:0 6px 6px 0;padding:6px 10px;margin-bottom:8px;display:flex;gap:8px}
+  .verItem .t{font-size:11px;color:var(--dim);white-space:nowrap}
+  .verItem .x{flex:1;word-break:break-word}
+  .verAdd{display:flex;gap:6px;margin-bottom:10px}
+  .verAdd input{flex:1}
+
+  /* ---------- 冲突 Modal ---------- */
+  .mask{position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:50}
+  .mask[hidden]{display:none}
+  .modal{width:520px;max-width:92vw;max-height:84vh;overflow:auto;background:var(--panel);border:1px solid var(--accent);border-radius:12px;padding:18px}
+  .modal h3{margin:0 0 4px;font-size:16px}
+  .modal .sub{color:var(--dim);font-size:13px;margin-bottom:12px}
+  .modal .chg{font-family:var(--mono);background:#14161b;border:1px solid var(--line);border-radius:6px;padding:6px 10px;margin-bottom:12px}
+  .affList{border:1px solid var(--line);border-radius:8px;margin-bottom:14px;max-height:220px;overflow:auto}
+  .affItem{display:flex;justify-content:space-between;gap:8px;padding:6px 10px;border-bottom:1px solid #23252c;font-size:13px}
+  .affItem:last-child{border-bottom:none}
+  .affItem.cur{background:#2a2413}
+  .affItem .v{font-family:var(--mono);color:var(--accent2)}
+  .affItem .tag{font-size:11px;color:var(--accent);border:1px solid var(--accent);border-radius:4px;padding:0 4px;margin-left:6px}
+  .mActions{display:flex;gap:8px;justify-content:flex-end}
+  .mNote{font-size:12px;color:var(--dim);margin-top:10px}
+
+  /* ---------- 撤回条 ---------- */
+  #undoBar{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);background:#262933;border:1px solid var(--accent);border-radius:10px;padding:8px 14px;display:flex;gap:12px;align-items:center;z-index:40;box-shadow:0 6px 24px #000a;max-width:80vw}
+  #undoBar[hidden]{display:none}
+  #undoBar .d{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:52vw}
+  #undoHist{position:fixed;left:50%;bottom:64px;transform:translateX(-50%);background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px;z-index:40;max-height:40vh;overflow:auto;width:min(560px,90vw)}
+  #undoHist[hidden]{display:none}
+  #undoHist .row{display:flex;gap:10px;align-items:center;padding:5px 4px;border-bottom:1px solid #23252c;font-size:13px}
+  #undoHist .row:last-child{border-bottom:none}
+  #undoHist .row .d{flex:1;color:var(--dim)}
+
+  #toast{position:fixed;right:16px;bottom:16px;background:#23402e;border:1px solid var(--ok);color:#c9f0d8;border-radius:8px;padding:8px 14px;z-index:60;font-size:13px}
+  #toast[hidden]{display:none}
+</style>
+</head>
+<body>
+
+<header>
+  <span class="logo">🎭</span>
+  <input class="showName" id="showName" title="演出名称">
+  <span class="hint">灯位图点击=加入/移出当前 Cue，拖动=调整灯位 · 数据保存在本浏览器</span>
+  <span class="sp"></span>
+  <button id="btnExport">导出</button>
+  <button id="btnImport">导入</button>
+  <input type="file" id="fileIn" accept="application/json" hidden>
+  <button class="danger" id="btnReset">重置示例</button>
+</header>
+
+<main>
+  <!-- 左：Cue 列表（触发顺序） -->
+  <section>
+    <h2>Cue 列表 · 触发顺序</h2>
+    <div id="cueList"></div>
+    <button class="primary" id="btnAddCue" style="width:100%">＋ 新建 Cue</button>
+    <div class="cueEdit" id="cueEdit"></div>
+  </section>
+
+  <!-- 中：灯位图 + 场景预览 -->
+  <div class="colWrap">
+    <section style="flex:1.2">
+      <h2>舞台灯位图</h2>
+      <svg id="plot" viewBox="0 0 100 62" preserveAspectRatio="xMidYMid meet"></svg>
+      <div class="plotHint">圆圈颜色=色片；琥珀色描边=已加入当前 Cue；暗色=被筛选器排除</div>
+    </section>
+    <section>
+      <h2>场景预览</h2>
+      <div id="preview"></div>
+    </section>
+  </div>
+
+  <!-- 右：筛选 + 当前 Cue 灯具表 + 版本备注 -->
+  <div class="colWrap">
+    <section style="flex:1.4">
+      <h2 id="tblTitle">当前 Cue 灯具</h2>
+      <div class="filters">
+        <input type="text" id="fText" placeholder="筛选：编号 / 通道 / 焦点…">
+        <select id="fType"><option value="">全部类型</option></select>
+        <input class="gelF" id="fGel" list="gelList" placeholder="色片">
+      </div>
+      <div style="overflow:auto;max-height:calc(100% - 90px)">
+        <table>
+          <thead><tr><th>灯具</th><th>通道</th><th>色片</th><th>焦点</th><th>亮度</th><th></th></tr></thead>
+          <tbody id="fxBody"></tbody>
+        </table>
+        <div class="emptyTip" id="tblEmpty" hidden>当前 Cue 还没有灯具 —— 在左侧灯位图上点击灯具即可加入。</div>
+      </div>
+    </section>
+    <section>
+      <h2>版本备注</h2>
+      <div class="verAdd">
+        <input id="verText" placeholder="记录本次修改，如：导演要求独白更冷…">
+        <button class="primary" id="btnAddVer">记下</button>
+      </div>
+      <div id="verList"></div>
+    </section>
+  </div>
+</main>
+
+<!-- 受影响项 Modal -->
+<div class="mask" id="modalMask" hidden>
+  <div class="modal">
+    <h3 id="mTitle"></h3>
+    <div class="sub" id="mSub"></div>
+    <div class="chg" id="mChg"></div>
+    <div class="affList" id="mList"></div>
+    <div class="mActions">
+      <button id="mCancel">取消</button>
+      <button id="mCueOnly">仅当前 Cue</button>
+      <button class="primary" id="mSync">同步全部引用</button>
+    </div>
+    <div class="mNote">两种方式都会保留旧值，可在底部撤回条中撤回。</div>
+  </div>
+</div>
+
+<div id="undoBar" hidden>
+  <span>↩︎</span><span class="d" id="undoDesc"></span>
+  <button class="primary" id="btnUndo">撤回</button>
+  <button class="ghost" id="btnUndoHist">历史</button>
+</div>
+<div id="undoHist" hidden></div>
+<div id="toast" hidden></div>
+
+<datalist id="gelList"></datalist>
+
+<script>
+"use strict";
+/* ================= 色片库（常用 Lee / Rosco，近似色） ================= */
+const GELS = {
+  "":"#f4f1e8","OW":"#f4f1e8",
+  "L201":"#a9c6ff","L202":"#cfe0ff","L203":"#e3edff",
+  "L204":"#ff9e4f","L205":"#ffc98f","L206":"#ffe0bd",
+  "L009":"#ffb347","L010":"#ffd23f","L019":"#b27bff","L105":"#ff7a1a",
+  "L110":"#ffb3c7","L132":"#3aa0ff","L139":"#35d06f","L161":"#5b8cff",
+  "R80":"#2f5dff","R26":"#ff4747","R27":"#c22828","R79":"#c724b1","R339":"#7a3cff"
+};
+const gelColor = g => GELS[(g||"").trim().toUpperCase()] ?? "#f4f1e8";
+const FIELD_LABEL = {channel:"通道", gel:"色片", focus:"焦点", intensity:"亮度"};
+
+/* ================= 数据 ================= */
+const LS_KEY = "stageLightConsole.v1";
+let state = null;
+let selectedCueId = null;
+let filter = {text:"", type:"", gel:""};
+let pending = null;          // 待确认的 channel/gel 修改
+let toastTimer = null;
+
+function uid(){ return Math.random().toString(36).slice(2,9); }
+
+function seed(){
+  const F = (id,label,type,channel,gel,focus,x,y)=>({id,label,type,channel,gel,focus,x,y});
+  const fixtures = [
+    F("f1","F1","成像灯","1","L202","舞台左前",18,8),
+    F("f2","F2","成像灯","2","L202","舞台中前",50,8),
+    F("f3","F3","成像灯","3","L202","舞台右前",82,8),
+    F("f4","T1","聚光灯","4","L204","中区",35,24),
+    F("f5","T2","聚光灯","5","L204","中区",65,24),
+    F("f6","S1","LED PAR","6","R80","侧幕左",6,30),
+    F("f7","S2","LED PAR","7","R80","侧幕右",94,30),
+    F("f8","B1","成像灯","8","L201","逆光区",30,44),
+    F("f9","B2","成像灯","9","L201","逆光区",70,44),
+    F("f10","C1","天幕灯","10","L139","天幕",50,56),
+    F("f11","M1","电脑灯","11","","全场",40,14),
+    F("f12","M2","电脑灯","12","","全场",60,14),
+  ];
+  const C = (no,name,fade,note,levels)=>({id:uid(),no,name,fade,note,levels,overrides:{}});
+  const cues = [
+    C("Q1","暖场 · 观众入场",3,"琥珀色底，天幕微绿",{f1:60,f2:60,f3:60,f10:40}),
+    C("Q2","独白 · 追光感",2,"只留中前与逆光",{f2:80,f4:50,f8:30}),
+    C("Q3","舞会 · 全台",1,"电脑灯全开，侧光打满",{f4:70,f5:70,f6:80,f7:80,f11:90,f12:90,f10:50}),
+    C("Q4","冲突 · 冷侧光",0.5,"导演待定：T1 是否换 L201",{f6:90,f7:90,f8:70,f9:70,f4:40}),
+    C("Q5","谢幕 · 暖收",4,"回到暖色",{f1:80,f2:80,f3:80,f4:60,f5:60,f10:60}),
+  ];
+  return {
+    showName:"《夜航船》· 灯光 Cue 表",
+    fixtures, cues,
+    versions:[{id:uid(),t:Date.now(),text:"初版灯位与 Cue 表（技术排练前）"}],
+    undoStack:[]
+  };
+}
+function load(){
+  try{ const raw = localStorage.getItem(LS_KEY); if(raw){ state = JSON.parse(raw); return; } }catch(e){}
+  state = seed(); save();
+}
+function save(){ localStorage.setItem(LS_KEY, JSON.stringify(state)); }
+
+/* ================= 取值辅助 ================= */
+const fix = fid => state.fixtures.find(f=>f.id===fid);
+const currentCue = () => state.cues.find(c=>c.id===selectedCueId) || null;
+function effField(fid, cue, field){
+  const ov = cue && cue.overrides && cue.overrides[fid];
+  if(ov && ov[field] != null) return ov[field];
+  const f = fix(fid); return f ? (f[field] ?? "") : "";
+}
+function hasOverride(fid, cue, field){
+  return !!(cue && cue.overrides && cue.overrides[fid] && cue.overrides[fid][field] != null);
+}
+const affectedCues = fid => state.cues.filter(c=>c.levels && fid in c.levels);
+const esc = s => String(s??"").replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
+const fmtT = t => new Date(t).toLocaleString("zh-CN",{month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit"});
+
+/* ================= 撤回 ================= */
+function pushUndo(entry){
+  entry.id = uid();
+  state.undoStack.push(entry);
+  if(state.undoStack.length > 50) state.undoStack.shift();
+}
+function undoEntry(id){
+  const i = state.undoStack.findIndex(e=>e.id===id);
+  if(i<0) return;
+  const e = state.undoStack[i];
+  if(e.mode === "cue"){
+    const cue = state.cues.find(c=>c.id===e.cueId);
+    if(cue){
+      if(e.field === "intensity"){
+        if(e.old == null) delete cue.levels[e.fid]; else cue.levels[e.fid] = e.old;
+      }else{
+        cue.overrides = cue.overrides || {};
+        if(e.had){ (cue.overrides[e.fid] = cue.overrides[e.fid]||{})[e.field] = e.old; }
+        else if(cue.overrides[e.fid]){ delete cue.overrides[e.fid][e.field]; if(!Object.keys(cue.overrides[e.fid]).length) delete cue.overrides[e.fid]; }
+      }
+    }
+  }else if(e.mode === "sync"){
+    const f = fix(e.fid);
+    if(f){
+      f[e.field] = e.oldGlobal;
+      e.cleared.forEach(cl=>{
+        const cue = state.cues.find(c=>c.id===cl.cueId); if(!cue) return;
+        cue.overrides = cue.overrides || {};
+        (cue.overrides[e.fid] = cue.overrides[e.fid]||{})[e.field] = cl.val;
+      });
+    }
+  }else if(e.mode === "global"){
+    const f = fix(e.fid); if(f) f[e.field] = e.oldGlobal;
+  }
+  state.undoStack.splice(i,1);
+  save(); renderAll();
+  toast("已撤回：" + e.desc);
+}
+
+/* ================= 修改入口 ================= */
+function applyCueOnly(fid, field, newVal){
+  const cue = currentCue(); if(!cue) return;
+  cue.overrides = cue.overrides || {};
+  cue.overrides[fid] = cue.overrides[fid] || {};
+  const had = field in cue.overrides[fid];
+  const old = had ? cue.overrides[fid][field] : null;
+  cue.overrides[fid][field] = newVal;
+  pushUndo({mode:"cue", cueId:cue.id, fid, field, had, old,
+    desc:`${fix(fid).label} 的${FIELD_LABEL[field]}仅在 ${cue.no} 改为「${newVal}」（旧值 ${old ?? effField(fid,null,field)}）`});
+  save(); renderAll();
+}
+function applySyncAll(fid, field, newVal){
+  const f = fix(fid); if(!f) return;
+  const oldGlobal = f[field];
+  const cleared = [];
+  state.cues.forEach(c=>{
+    const ov = c.overrides && c.overrides[fid];
+    if(ov && field in ov){
+      cleared.push({cueId:c.id, val:ov[field]});
+      delete ov[field];
+      if(!Object.keys(ov).length) delete c.overrides[fid];
+    }
+  });
+  f[field] = newVal;
+  const n = affectedCues(fid).length;
+  pushUndo({mode:"sync", fid, field, oldGlobal, cleared,
+    desc:`${f.label} 的${FIELD_LABEL[field]}同步全部引用为「${newVal}」（旧值 ${oldGlobal}，${n} 个 Cue）`});
+  addVersion(`[自动] ${f.label} ${FIELD_LABEL[field]}：${oldGlobal||"（空）"} → ${newVal||"（空）"}，已同步 ${n} 个 Cue`, true);
+  save(); renderAll();
+}
+function applyGlobal(fid, field, newVal){
+  const f = fix(fid); if(!f) return;
+  const oldGlobal = f[field];
+  if(oldGlobal === newVal) return;
+  f[field] = newVal;
+  pushUndo({mode:"global", fid, field, oldGlobal,
+    desc:`${f.label} 的${FIELD_LABEL[field]}改为「${newVal}」（旧值 ${oldGlobal}）`});
+  save(); renderAll();
+}
+function setIntensity(fid, val, old){
+  const cue = currentCue(); if(!cue) return;
+  val = Math.max(0, Math.min(100, Math.round(val)));
+  if(old == null) old = (fid in cue.levels) ? cue.levels[fid] : null;
+  if(old === val) return;
+  cue.levels[fid] = val;
+  pushUndo({mode:"cue", cueId:cue.id, fid, field:"intensity", old,
+    desc:`${fix(fid).label} 在 ${cue.no} 的亮度 ${old ?? "未加入"} → ${val}`});
+  save(); renderAll();
+}
+function toggleInCue(fid){
+  const cue = currentCue(); if(!cue) return;
+  if(fid in cue.levels){
+    const old = cue.levels[fid];
+    delete cue.levels[fid];
+    pushUndo({mode:"cue", cueId:cue.id, fid, field:"intensity", old,
+      desc:`${fix(fid).label} 移出 ${cue.no}（原亮度 ${old}）`});
+  }else{
+    cue.levels[fid] = 70;
+    pushUndo({mode:"cue", cueId:cue.id, fid, field:"intensity", old:null,
+      desc:`${fix(fid).label} 加入 ${cue.no}（亮度 70）`});
+  }
+  save(); renderAll();
+}
+
+/* 提交 channel / gel 修改：多于一个 Cue 引用时先弹受影响项 */
+function commitFieldEdit(fid, field, newVal){
+  const cue = currentCue();
+  const cur = effField(fid, cue, field);
+  newVal = newVal.trim();
+  if(newVal === cur) return;
+  const aff = affectedCues(fid);
+  if(aff.length > 1){
+    pending = {fid, field, newVal};
+    openModal();
+  }else{
+    applyCueOnly(fid, field, newVal);
+    toast(`已仅修改当前 Cue（${fix(fid).label} 只被 1 个 Cue 引用）`);
+  }
+}
+
+/* ================= Modal ================= */
+const $ = id => document.getElementById(id);
+function openModal(){
+  const {fid, field, newVal} = pending;
+  const f = fix(fid), cue = currentCue();
+  $("mTitle").textContent = `${f.label} · 修改${FIELD_LABEL[field]}`;
+  $("mSub").textContent = `该灯具被 ${affectedCues(fid).length} 个 Cue 引用，请选择修改范围：`;
+  $("mChg").innerHTML = `当前有效值 <b>${esc(effField(fid,cue,field))||"（空）"}</b> → 新值 <b style="color:var(--accent2)">${esc(newVal)||"（空）"}</b>`;
+  $("mList").innerHTML = affectedCues(fid).map(c=>{
+    const ovr = hasOverride(fid,c,field);
+    return `<div class="affItem ${c.id===cue.id?"cur":""}">
+      <span>${esc(c.no)} ${esc(c.name)}${c.id===cue.id?'<span class="tag">当前</span>':""}${ovr?'<span class="tag">已单独覆盖</span>':""}</span>
+      <span class="v">${esc(effField(fid,c,field))||"（空）"}</span>
+    </div>`;
+  }).join("");
+  $("modalMask").hidden = false;
+}
+function closeModal(){ $("modalMask").hidden = true; pending = null; }
+
+/* ================= 渲染 ================= */
+function matchFilter(f){
+  if(filter.type && f.type !== filter.type) return false;
+  if(filter.gel && !(f.gel||"").toUpperCase().includes(filter.gel.toUpperCase())) return false;
+  if(filter.text){
+    const t = filter.text.toLowerCase();
+    const hay = `${f.label} ${f.type} ${f.channel} ${f.gel} ${f.focus}`.toLowerCase();
+    if(!hay.includes(t)) return false;
+  }
+  return true;
+}
+
+function renderCues(){
+  const list = $("cueList");
+  list.innerHTML = state.cues.map((c,i)=>{
+    const n = Object.keys(c.levels||{}).length;
+    return `<div class="cueItem ${c.id===selectedCueId?"sel":""}" data-id="${c.id}">
+      <span class="ord">${i+1}</span>
+      <div class="meta">
+        <div class="nm">${esc(c.no)} · ${esc(c.name)}</div>
+        <div class="sub">淡入 ${c.fade}s · ${n} 盏灯${c.note?(" · "+esc(c.note)):""}</div>
+      </div>
+      <div class="ops">
+        <button data-act="up" ${i===0?"disabled":""}>↑</button>
+        <button data-act="down" ${i===state.cues.length-1?"disabled":""}>↓</button>
+        <button data-act="dup">⧉</button>
+        <button data-act="del">✕</button>
+      </div>
+    </div>`;
+  }).join("");
+
+  list.querySelectorAll(".cueItem").forEach(el=>{
+    const id = el.dataset.id;
+    el.addEventListener("click", e=>{
+      const act = e.target.dataset && e.target.dataset.act;
+      if(!act){ selectedCueId = id; renderAll(); return; }
+      e.stopPropagation();
+      const i = state.cues.findIndex(c=>c.id===id);
+      if(act==="up" && i>0){ [state.cues[i-1],state.cues[i]]=[state.cues[i],state.cues[i-1]]; }
+      if(act==="down" && i<state.cues.length-1){ [state.cues[i+1],state.cues[i]]=[state.cues[i],state.cues[i+1]]; }
+      if(act==="dup"){
+        const src = state.cues[i];
+        const copy = JSON.parse(JSON.stringify(src));
+        copy.id = uid(); copy.no = src.no + "'"; copy.name = src.name + "（副本）";
+        state.cues.splice(i+1,0,copy); selectedCueId = copy.id;
+      }
+      if(act==="del"){
+        if(!confirm(`删除 ${src_label(i)}？此操作不可撤回。`)) return;
+        state.cues.splice(i,1);
+        if(selectedCueId===id) selectedCueId = state.cues[0] ? state.cues[0].id : null;
+      }
+      save(); renderAll();
+    });
+  });
+  function src_label(i){ const c=state.cues[i]; return `${c.no} ${c.name}`; }
+
+  const cue = currentCue();
+  $("cueEdit").innerHTML = cue ? `
+    <label>Cue 号<input id="ceNo" value="${esc(cue.no)}"></label>
+    <label>淡入时间(s)<input id="ceFade" type="number" min="0" step="0.5" value="${cue.fade}"></label>
+    <label class="full">名称<input id="ceName" value="${esc(cue.name)}"></label>
+    <label class="full">备注<input id="ceNote" value="${esc(cue.note||"")}"></label>` :
+    `<div class="emptyTip full">暂无 Cue</div>`;
+  if(cue){
+    const bind = (id, key, num)=>{
+      $(id).addEventListener("change", e=>{
+        cue[key] = num ? Math.max(0, parseFloat(e.target.value)||0) : e.target.value;
+        save(); renderCues(); renderPreview();
+      });
+    };
+    bind("ceNo","no"); bind("ceFade","fade",true); bind("ceName","name"); bind("ceNote","note");
+  }
+}
+
+function renderPlot(){
+  const svg = $("plot");
+  const cue = currentCue();
+  let grid = `<rect x="0" y="0" width="100" height="62" fill="#0d0e12"/>`;
+  for(let x=10;x<100;x+=10) grid += `<line x1="${x}" y1="0" x2="${x}" y2="62" stroke="#1b1d24" stroke-width=".3"/>`;
+  for(let y=10;y<62;y+=10) grid += `<line x1="0" y1="${y}" x2="100" y2="${y}" stroke="#1b1d24" stroke-width=".3"/>`;
+  grid += `<text x="2" y="5" fill="#4a4e5a" font-size="3">台左</text>
+           <text x="94" y="5" fill="#4a4e5a" font-size="3">台右</text>
+           <text x="44" y="61" fill="#4a4e5a" font-size="3">观众席方向 ↓</text>`;
+  const dots = state.fixtures.map(f=>{
+    const inCue = cue && f.id in (cue.levels||{});
+    const dim = !matchFilter(f);
+    const g = effField(f.id, cue, "gel");
+    return `<g class="fxDot ${inCue?"inCue":""} ${dim?"dim":""}" data-id="${f.id}">
+      <title>${esc(f.label)} · ${esc(f.type)} · CH${esc(f.channel)} · ${esc(f.gel||"OW")} · ${esc(f.focus)}</title>
+      <circle class="halo" cx="${f.x}" cy="${f.y}" r="3.4"/>
+      <circle cx="${f.x}" cy="${f.y}" r="2.2" fill="${gelColor(g)}" stroke="#000" stroke-width=".3"/>
+      <text x="${f.x}" y="${f.y+5.6}">${esc(f.label)}·${esc(f.channel)}</text>
+    </g>`;
+  }).join("");
+  svg.innerHTML = grid + dots;
+
+  /* 拖动调位 / 点击加入移出 */
+  svg.querySelectorAll(".fxDot").forEach(g=>{
+    g.addEventListener("pointerdown", ev=>{
+      ev.preventDefault();
+      const fid = g.dataset.id, f = fix(fid);
+      const rect = svg.getBoundingClientRect();
+      const sx = ev.clientX, sy = ev.clientY;
+      let moved = false;
+      const toXY = e => [ (e.clientX-rect.left)/rect.width*100, (e.clientY-rect.top)/rect.height*62 ];
+      const move = e=>{
+        const [nx,ny] = toXY(e);
+        if(!moved && Math.hypot(e.clientX-sx, e.clientY-sy) < 4) return;
+        moved = true;
+        f.x = Math.max(2, Math.min(98, +nx.toFixed(1)));
+        f.y = Math.max(2, Math.min(59, +ny.toFixed(1)));
+        const cs = g.querySelectorAll("circle"), tx = g.querySelector("text");
+        cs[0].setAttribute("cx",f.x); cs[0].setAttribute("cy",f.y);
+        cs[1].setAttribute("cx",f.x); cs[1].setAttribute("cy",f.y);
+        tx.setAttribute("x",f.x); tx.setAttribute("y",f.y+5.6);
+        renderPreview();
+      };
+      const up = ()=>{
+        window.removeEventListener("pointermove", move);
+        window.removeEventListener("pointerup", up);
+        if(moved){ save(); renderPreview(); }
+        else toggleInCue(fid);
+      };
+      window.addEventListener("pointermove", move);
+      window.addEventListener("pointerup", up);
+    });
+  });
+}
+
+function renderTable(){
+  const cue = currentCue();
+  $("tblTitle").textContent = cue ? `当前 Cue 灯具 · ${cue.no} ${cue.name}` : "当前 Cue 灯具";
+  const body = $("fxBody");
+  if(!cue){ body.innerHTML=""; $("tblEmpty").hidden=false; return; }
+  const rows = state.fixtures
+    .filter(f => f.id in (cue.levels||{}) && matchFilter(f))
+    .sort((a,b)=> (parseFloat(a.channel)||999) - (parseFloat(b.channel)||999) || a.label.localeCompare(b.label));
+  $("tblEmpty").hidden = rows.length>0;
+  body.innerHTML = rows.map(f=>{
+    const gel = effField(f.id, cue, "gel");
+    const cell = field => {
+      const v = effField(f.id, cue, field);
+      const ovr = hasOverride(f.id, cue, field);
+      const sw = field==="gel" ? `<span class="swatch" style="background:${gelColor(v)}"></span>` : "";
+      return `<span class="cellV" data-fid="${f.id}" data-field="${field}" title="点击修改${FIELD_LABEL[field]}">${sw}<span class="${field==="channel"?"mono":""}">${esc(v)||"（空）"}</span>${ovr?'<span class="ovrDot" title="本 Cue 单独覆盖"></span>':""}</span>`;
+    };
+    const lv = cue.levels[f.id];
+    return `<tr>
+      <td><div class="fxLabel">${esc(f.label)}</div><div class="fxType">${esc(f.type)}</div></td>
+      <td>${cell("channel")}</td>
+      <td>${cell("gel")}</td>
+      <td>${cell("focus")}</td>
+      <td><div class="intCell">
+        <input type="range" min="0" max="100" value="${lv}" data-fid="${f.id}">
+        <input type="number" min="0" max="100" value="${lv}" data-fid="${f.id}">
+      </div></td>
+      <td><button class="ghost" data-rm="${f.id}" title="移出本 Cue">✕</button></td>
+    </tr>`;
+  }).join("");
+
+  /* 通道/色片/焦点 单元格编辑 */
+  body.querySelectorAll(".cellV").forEach(el=>{
+    el.addEventListener("click", ()=>{
+      if(el.querySelector("input")) return;
+      const {fid, field} = el.dataset;
+      const old = effField(fid, cue, field);
+      el.innerHTML = `<input ${field==="gel"?'list="gelList"':""} value="${esc(old)}">`;
+      const inp = el.querySelector("input");
+      inp.focus(); inp.select();
+      let done = false;
+      const commit = ()=>{
+        if(done) return; done = true;
+        const v = inp.value;
+        if(field === "focus") applyGlobal(fid, field, v.trim());
+        else commitFieldEdit(fid, field, v);
+        renderAll();
+      };
+      inp.addEventListener("keydown", e=>{
+        if(e.key==="Enter") commit();
+        if(e.key==="Escape"){ done=true; renderAll(); }
+      });
+      inp.addEventListener("blur", commit);
+    });
+  });
+
+  /* 亮度 */
+  body.querySelectorAll("input[type=range]").forEach(r=>{
+    let old = null;
+    r.addEventListener("pointerdown", ()=> old = +r.value);
+    r.addEventListener("input", ()=>{
+      const cue2 = currentCue(); if(!cue2) return;
+      cue2.levels[r.dataset.fid] = +r.value;
+      const num = body.querySelector(`input[type=number][data-fid="${r.dataset.fid}"]`);
+      if(num) num.value = r.value;
+      renderPreview();
+    });
+    r.addEventListener("change", ()=> setIntensity(r.dataset.fid, +r.value, old));
+  });
+  body.querySelectorAll("input[type=number]").forEach(n=>{
+    n.addEventListener("change", ()=> setIntensity(n.dataset.fid, +n.value, null));
+  });
+  body.querySelectorAll("[data-rm]").forEach(b=>{
+    b.addEventListener("click", ()=> toggleInCue(b.dataset.rm));
+  });
+}
+
+function renderPreview(){
+  const pv = $("preview");
+  const cue = currentCue();
+  if(!cue){ pv.innerHTML = `<div class="cap">未选择 Cue</div>`; return; }
+  let html = "";
+  state.fixtures.forEach(f=>{
+    const lv = cue.levels && cue.levels[f.id];
+    if(lv == null) return;
+    const col = gelColor(effField(f.id, cue, "gel"));
+    html += `<div class="src" style="left:${f.x}%;top:${f.y*0.62}%;background:${col};opacity:${0.3+lv/150}"></div>`;
+    if(lv > 0){
+      const size = 18 + lv*0.22;
+      html += `<div class="pool" style="left:${f.x}%;top:${62 + f.y*0.3}%;width:${size}%;padding-bottom:${size*0.45}%;
+        background:radial-gradient(ellipse at center, ${col} 0%, transparent 68%);opacity:${lv/100}"></div>`;
+    }
+  });
+  html += `<div class="cap">${esc(cue.no)} · ${esc(cue.name)} · 淡入 ${cue.fade}s · ${Object.keys(cue.levels||{}).length} 盏灯</div>`;
+  pv.innerHTML = html;
+}
+
+function renderVersions(){
+  $("verList").innerHTML = state.versions.slice().reverse().map(v=>
+    `<div class="verItem"><span class="t">${fmtT(v.t)}</span><span class="x">${esc(v.text)}</span>
+     <button class="ghost" data-vid="${v.id}">✕</button></div>`).join("");
+  $("verList").querySelectorAll("[data-vid]").forEach(b=>{
+    b.addEventListener("click", ()=>{
+      state.versions = state.versions.filter(v=>v.id!==b.dataset.vid);
+      save(); renderVersions();
+    });
+  });
+}
+function addVersion(text, silent){
+  state.versions.push({id:uid(), t:Date.now(), text});
+  save(); renderVersions();
+  if(!silent) toast("已记录版本备注");
+}
+
+function renderUndoBar(){
+  const bar = $("undoBar");
+  const last = state.undoStack[state.undoStack.length-1];
+  bar.hidden = !last;
+  if(last) $("undoDesc").textContent = last.desc;
+  const hist = $("undoHist");
+  if(!hist.hidden){
+    hist.innerHTML = state.undoStack.length
+      ? state.undoStack.slice().reverse().map(e=>
+        `<div class="row"><span class="d">${esc(e.desc)}</span><button data-uid="${e.id}">撤回</button></div>`).join("")
+      : `<div class="emptyTip">没有可撤回的修改</div>`;
+    hist.querySelectorAll("[data-uid]").forEach(b=>
+      b.addEventListener("click", ()=> undoEntry(b.dataset.uid)));
+  }
+}
+
+function renderFilters(){
+  const sel = $("fType");
+  const types = [...new Set(state.fixtures.map(f=>f.type))];
+  sel.innerHTML = `<option value="">全部类型</option>` + types.map(t=>
+    `<option ${filter.type===t?"selected":""}>${esc(t)}</option>`).join("");
+  $("fText").value = filter.text;
+  $("fGel").value = filter.gel;
+}
+
+function renderAll(){
+  renderCues(); renderPlot(); renderTable(); renderPreview(); renderVersions(); renderUndoBar();
+  $("showName").value = state.showName;
+}
+
+/* ================= 提示 ================= */
+function toast(msg){
+  const t = $("toast");
+  t.textContent = msg; t.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(()=> t.hidden = true, 2600);
+}
+
+/* ================= 事件绑定 ================= */
+function init(){
+  /* 色片候选 */
+  $("gelList").innerHTML = Object.keys(GELS).filter(Boolean).map(g=>`<option value="${g}">`).join("");
+
+  $("showName").addEventListener("change", e=>{ state.showName = e.target.value; save(); });
+
+  $("btnAddCue").addEventListener("click", ()=>{
+    const c = {id:uid(), no:"Q"+(state.cues.length+1), name:"新 Cue", fade:2, note:"", levels:{}, overrides:{}};
+    state.cues.push(c); selectedCueId = c.id; save(); renderAll();
+  });
+
+  /* 筛选 */
+  $("fText").addEventListener("input", e=>{ filter.text = e.target.value.trim(); renderPlot(); renderTable(); });
+  $("fType").addEventListener("change", e=>{ filter.type = e.target.value; renderPlot(); renderTable(); });
+  $("fGel").addEventListener("input", e=>{ filter.gel = e.target.value.trim(); renderPlot(); renderTable(); });
+
+  /* 版本备注 */
+  $("btnAddVer").addEventListener("click", ()=>{
+    const v = $("verText").value.trim(); if(!v) return;
+    addVersion(v); $("verText").value = "";
+  });
+  $("verText").addEventListener("keydown", e=>{ if(e.key==="Enter") $("btnAddVer").click(); });
+
+  /* Modal */
+  $("mCancel").addEventListener("click", closeModal);
+  $("modalMask").addEventListener("click", e=>{ if(e.target===e.currentTarget) closeModal(); });
+  document.addEventListener("keydown", e=>{ if(e.key==="Escape" && !$("modalMask").hidden) closeModal(); });
+  $("mCueOnly").addEventListener("click", ()=>{
+    const p = pending; closeModal();
+    applyCueOnly(p.fid, p.field, p.newVal);
+    toast("已仅修改当前 Cue，可撤回");
+  });
+  $("mSync").addEventListener("click", ()=>{
+    const p = pending; closeModal();
+    applySyncAll(p.fid, p.field, p.newVal);
+    toast("已同步全部引用，可撤回");
+  });
+
+  /* 撤回 */
+  $("btnUndo").addEventListener("click", ()=>{
+    const last = state.undoStack[state.undoStack.length-1];
+    if(last) undoEntry(last.id);
+  });
+  $("btnUndoHist").addEventListener("click", ()=>{
+    $("undoHist").hidden = !$("undoHist").hidden;
+    renderUndoBar();
+  });
+
+  /* 导入导出重置 */
+  $("btnExport").addEventListener("click", ()=>{
+    const blob = new Blob([JSON.stringify(state,null,2)], {type:"application/json"});
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = (state.showName||"cue-sheet") + ".json";
+    a.click(); URL.revokeObjectURL(a.href);
+  });
+  $("btnImport").addEventListener("click", ()=> $("fileIn").click());
+  $("fileIn").addEventListener("change", e=>{
+    const file = e.target.files[0]; if(!file) return;
+    const rd = new FileReader();
+    rd.onload = ()=>{
+      try{
+        const data = JSON.parse(rd.result);
+        if(!data.fixtures || !data.cues) throw 0;
+        state = data; state.undoStack = state.undoStack || [];
+        selectedCueId = state.cues[0] ? state.cues[0].id : null;
+        save(); renderAll(); toast("导入成功");
+      }catch(_){ alert("文件格式不正确"); }
+    };
+    rd.readAsText(file);
+    e.target.value = "";
+  });
+  $("btnReset").addEventListener("click", ()=>{
+    if(!confirm("清空本地数据并恢复示例？")) return;
+    state = seed(); selectedCueId = state.cues[0].id; save(); renderAll();
+  });
+
+  load();
+  selectedCueId = state.cues[0] ? state.cues[0].id : null;
+  renderFilters();
+  renderAll();
+}
+init();
+</script>
+</body>
+</html>
